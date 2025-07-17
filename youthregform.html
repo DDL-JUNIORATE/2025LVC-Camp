@@ -10,8 +10,142 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+  
+  <!-- Firebase Modular SDK -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-app.js";
+    import { getFirestore, collection, addDoc, getDocs, query, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyD0vbN_f4WAcGJt18lPqjyUkkW9JIHNKbo",
+      authDomain: "su-second-batch.firebaseapp.com",
+      projectId: "su-second-batch",
+      storageBucket: "su-second-batch.firebasestorage.app",
+      messagingSenderId: "310264684886",
+      appId: "1:310264684886:web:1ad6694735a6212be1b6f7",
+      measurementId: "G-17LBMV9V1H"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    const form = document.getElementById('campForm');
+    const confirmation = document.getElementById('confirmation');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const data = Object.fromEntries(new FormData(form));
+      data.code = 'SU' + Date.now();
+
+      await addDoc(collection(db, "applications"), data);
+
+      confirmation.innerHTML = `<h3>Registration Successful. We believe this camp will bless you, ${data.name}! <br>Come with #700 to purchase of camp materials e.g. Bible study, Magazine etc</h3><p>Your code: ${data.code}</p>
+      <button onclick='downloadApplicantPDF(${JSON.stringify(JSON.stringify(data))})'>Download PDF</button>`;
+      confirmation.classList.remove('hidden');
+      form.reset();
+    });
+
+    window.downloadApplicantPDF = function(dataJSON) {
+      const data = JSON.parse(dataJSON);
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF();
+      doc.setFillColor(8, 63, 22);
+      doc.rect(0, 0, 210, 297, 'F');
+      doc.setTextColor(255,255,255);
+      doc.setFontSize(16);
+      doc.text('Scripture Union Abakpa Zone 2025 LVC', 20, 20);
+      doc.addImage('LOGO_3.png', 'PNG', 150, 10, 40, 40);
+      let y = 60;
+      for (const [key, val] of Object.entries(data)) {
+        doc.text(`${key}: ${val}`, 20, y);
+        y += 10;
+      }
+      doc.save(`SU_Camp_${data.code}.pdf`);
+    }
+
+    window.checkAdmin = async function(e) {
+      e.preventDefault();
+      if (document.getElementById('adminPassword').value === 'Letmein123@') {
+        document.getElementById('adminLogin').classList.add('hidden');
+        document.getElementById('adminPanel').classList.remove('hidden');
+        await loadApplications();
+      } else {
+        alert('Wrong password');
+      }
+    }
+
+    async function loadApplications() {
+      const q = query(collection(db, "applications"));
+      const snapshot = await getDocs(q);
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      renderTable(data);
+    }
+
+    function renderTable(data) {
+      const tbody = document.getElementById('tableBody');
+      tbody.innerHTML = '';
+      data.forEach(app => {
+        const row = `<tr><td>${app.code}</td><td>${app.name}</td><td>${app.age}</td><td>${app.phone}</td></tr>`;
+        tbody.innerHTML += row;
+      });
+    }
+
+    document.getElementById('searchInput').addEventListener('input', async e => {
+      const filter = e.target.value.toLowerCase();
+      const q = query(collection(db, "applications"));
+      const snapshot = await getDocs(q);
+      const data = snapshot.docs.map(doc => doc.data()).filter(app => app.name.toLowerCase().includes(filter));
+      renderTable(data);
+    });
+
+    window.downloadAll = async function(type) {
+      const q = query(collection(db, "applications"));
+      const snapshot = await getDocs(q);
+      const data = snapshot.docs.map(doc => doc.data());
+      if (type === 'csv') {
+        let csv = 'Code,Name,Age,Phone\n' + data.map(a => `${a.code},${a.name},${a.age},${a.phone}`).join('\n');
+        const blob = new Blob([csv], {type:'text/csv'});
+        saveBlob(blob, 'applications.csv');
+      } else if (type === 'json') {
+        const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json'});
+        saveBlob(blob, 'applications.json');
+      } else if (type === 'xlsx') {
+        const ws = XLSX.utils.json_to_sheet(data);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Applications');
+        XLSX.writeFile(wb, 'applications.xlsx');
+      } else if (type === 'zip') {
+        const zip = new JSZip();
+        zip.file('applications.json', JSON.stringify(data,null,2));
+        zip.file('applications.csv', 'Code,Name,Age,Phone\n' + data.map(a => `${a.code},${a.name},${a.age},${a.phone}`).join('\n'));
+        const ws = XLSX.utils.json_to_sheet(data);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Applications');
+        const xlsxBlob = XLSX.write(wb, {bookType:'xlsx', type:'array'});
+        zip.file('applications.xlsx', xlsxBlob);
+        zip.generateAsync({type:'blob'}).then(content => saveBlob(content, 'applications.zip'));
+      }
+    }
+
+    function saveBlob(blob, filename) {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+    }
+
+    window.resetAllApplications = async function() {
+      if (!confirm('Delete all applications?')) return;
+      const q = query(collection(db, "applications"));
+      const snapshot = await getDocs(q);
+      for (const docSnap of snapshot.docs) {
+        await deleteDoc(doc(db, "applications", docSnap.id));
+      }
+      await loadApplications();
+    }
+
+  </script>
 
   <style>
     body { font-family: Arial, sans-serif; padding: 20px; background-color: #083f16; color: #fff; }
@@ -67,130 +201,5 @@
     <button onclick="downloadAll('zip')">Download ZIP</button>
     <button onclick="resetAllApplications()" style="background:red;">Reset All</button>
   </div>
-
-  <script>
-    const firebaseConfig = {
-      apiKey: "AIzaSyBqM91ZwmbI72KZgAJBAR4avDobYT6SneU",
-      authDomain: "youth-2025-lvc-reg-form.firebaseapp.com",
-      projectId: "youth-2025-lvc-reg-form",
-      storageBucket: "youth-2025-lvc-reg-form.firebasestorage.app",
-      messagingSenderId: "93823755999",
-      appId: "1:93823755999:web:f0ab8e5c4a3f1131572b6a",
-      measurementId: "G-EHS9LTHFYJ"
-    };
-    firebase.initializeApp(firebaseConfig);
-    const db = firebase.firestore();
-
-    document.getElementById('campForm').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const form = e.target;
-      const data = Object.fromEntries(new FormData(form));
-      data.code = 'SU' + Date.now();
-
-      await db.collection('applications').add(data);
-
-      const confirmation = document.getElementById('confirmation');
-      confirmation.innerHTML = `<h3>Registration Successful. We believe this camp will bless you, ${data.name}! <br>Come with #700 to purchase of camp materials e.g. Bible study, Magazine etc</h3><p>Your code: ${data.code}</p>
-      <button onclick='downloadApplicantPDF(${JSON.stringify(data)})'>Download PDF</button>`;
-      confirmation.classList.remove('hidden');
-      form.reset();
-    });
-
-    function downloadApplicantPDF(data) {
-      const { jsPDF } = window.jspdf;
-      const doc = new jsPDF();
-      doc.setFillColor(8, 63, 22);
-      doc.rect(0, 0, 210, 297, 'F');
-      doc.setTextColor(255,255,255);
-      doc.setFontSize(16);
-      doc.text('Scripture Union Abakpa Zone 2025 LVC', 20, 20);
-      doc.addImage('LOGO_3.png', 'PNG', 150, 10, 40, 40);
-      doc.setTextColor(255,255,255);
-      let y = 60;
-      for (const [key, val] of Object.entries(data)) {
-        doc.text(`${key}: ${val}`, 20, y);
-        y += 10;
-      }
-      doc.save(`SU_Camp_${data.code}.pdf`);
-    }
-
-    function checkAdmin(e) {
-      e.preventDefault();
-      if (document.getElementById('adminPassword').value === 'Letmein123@') {
-        document.getElementById('adminLogin').classList.add('hidden');
-        document.getElementById('adminPanel').classList.remove('hidden');
-        loadApplications();
-      } else {
-        alert('Wrong password');
-      }
-    }
-
-    async function loadApplications() {
-      const snapshot = await db.collection('applications').get();
-      const data = snapshot.docs.map(doc => doc.data());
-      renderTable(data);
-    }
-
-    function renderTable(data) {
-      const tbody = document.getElementById('tableBody');
-      tbody.innerHTML = '';
-      data.forEach(app => {
-        const row = `<tr><td>${app.code}</td><td>${app.name}</td><td>${app.age}</td><td>${app.phone}</td></tr>`;
-        tbody.innerHTML += row;
-      });
-    }
-
-    document.getElementById('searchInput').addEventListener('input', async e => {
-      const filter = e.target.value.toLowerCase();
-      const snapshot = await db.collection('applications').get();
-      const data = snapshot.docs.map(doc => doc.data()).filter(app => app.name.toLowerCase().includes(filter));
-      renderTable(data);
-    });
-
-    async function downloadAll(type) {
-      const snapshot = await db.collection('applications').get();
-      const data = snapshot.docs.map(doc => doc.data());
-      if (type === 'csv') {
-        let csv = 'Code,Name,Age,Phone\n' + data.map(a => `${a.code},${a.name},${a.age},${a.phone}`).join('\n');
-        const blob = new Blob([csv], {type:'text/csv'});
-        saveBlob(blob, 'applications.csv');
-      } else if (type === 'json') {
-        const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json'});
-        saveBlob(blob, 'applications.json');
-      } else if (type === 'xlsx') {
-        const ws = XLSX.utils.json_to_sheet(data);
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, 'Applications');
-        XLSX.writeFile(wb, 'applications.xlsx');
-      } else if (type === 'zip') {
-        const zip = new JSZip();
-        zip.file('applications.json', JSON.stringify(data,null,2));
-        zip.file('applications.csv', 'Code,Name,Age,Phone\n' + data.map(a => `${a.code},${a.name},${a.age},${a.phone}`).join('\n'));
-        const ws = XLSX.utils.json_to_sheet(data);
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, 'Applications');
-        const xlsxBlob = XLSX.write(wb, {bookType:'xlsx', type:'array'});
-        zip.file('applications.xlsx', xlsxBlob);
-        zip.generateAsync({type:'blob'}).then(content => saveBlob(content, 'applications.zip'));
-      }
-    }
-
-    function saveBlob(blob, filename) {
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      a.click();
-    }
-
-    async function resetAllApplications() {
-      if (!confirm('Delete all applications?')) return;
-      const snapshot = await db.collection('applications').get();
-      const batch = db.batch();
-      snapshot.forEach(doc => batch.delete(doc.ref));
-      await batch.commit();
-      loadApplications();
-    }
-  </script>
 </body>
 </html>
